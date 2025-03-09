@@ -1,5 +1,4 @@
 object DataModuleAutoScriptRunnerFireDAC: TDataModuleAutoScriptRunnerFireDAC
-  OldCreateOrder = False
   Height = 338
   Width = 215
   object FDScript: TFDScript
@@ -7,13 +6,17 @@ object DataModuleAutoScriptRunnerFireDAC: TDataModuleAutoScriptRunnerFireDAC
       item
       end>
     Connection = FDConnection
-    ScriptOptions.EchoCommands = ecNone
-    ScriptOptions.FeedbackCommands = False
-    ScriptOptions.FeedbackScript = False
+    Transaction = FDTransaction
+    ScriptOptions.CommitEachNCommands = -1
+    ScriptOptions.EchoCommands = ecAll
     ScriptOptions.SpoolOutput = smOnReset
+    ScriptOptions.BreakOnError = True
     ScriptOptions.CommandSeparator = ';'
+    ScriptOptions.RaisePLSQLErrors = True
     Params = <>
     Macros = <>
+    OnProgress = FDScriptProgress
+    OnError = FDScriptError
     Left = 124
     Top = 20
   end
@@ -31,7 +34,7 @@ object DataModuleAutoScriptRunnerFireDAC: TDataModuleAutoScriptRunnerFireDAC
       'from'
       '  PATCH_LEVEL')
     Left = 40
-    Top = 76
+    Top = 132
   end
   object QueryAddPatchLevel: TFDQuery
     Connection = FDConnection
@@ -40,7 +43,7 @@ object DataModuleAutoScriptRunnerFireDAC: TDataModuleAutoScriptRunnerFireDAC
         'insert into PATCH_LEVEL (NUMBER, DESCRIPTION, MILESTONE) VALUES ' +
         '(:ParamNumber, :ParamDescription, :ParamMilestone)')
     Left = 40
-    Top = 128
+    Top = 184
     ParamData = <
       item
         Name = 'PARAMNUMBER'
@@ -54,5 +57,13 @@ object DataModuleAutoScriptRunnerFireDAC: TDataModuleAutoScriptRunnerFireDAC
         Name = 'PARAMMILESTONE'
         ParamType = ptInput
       end>
+  end
+  object FDTransaction: TFDTransaction
+    Options.AutoStart = False
+    Options.AutoStop = False
+    Options.DisconnectAction = xdRollback
+    Connection = FDConnection
+    Left = 40
+    Top = 68
   end
 end

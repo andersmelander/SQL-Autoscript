@@ -46,7 +46,8 @@ uses
   FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Stan.Param, FireDAC.Stan.Util,
   FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.DApt,
   FireDAC.Phys.Intf, FireDAC.Phys,
-  FireDAC.UI.Intf, FireDAC.VCLUI.Wait,
+  FireDAC.UI.Intf,
+  FireDAC.VCLUI.Wait, // Not used but the IDE keeps adding it
   FireDAC.Comp.DataSet, FireDAC.Comp.Client, FireDAC.Comp.Script, FireDAC.Comp.ScriptCommands,
 
   amData.AutoScript.Collection,
@@ -68,6 +69,9 @@ type
     FDConnection: TFDConnection;
     QueryPatchLevel: TFDQuery;
     QueryAddPatchLevel: TFDQuery;
+    FDTransaction: TFDTransaction;
+    procedure FDScriptProgress(Sender: TObject);
+    procedure FDScriptError(ASender, AInitiator: TObject; var AException: Exception);
   strict protected
     procedure DoGetPatchLevelItems(Items: TPatchLevelItems); override;
     procedure DoRegisterScript(ScriptItem: TScriptCollectionItem); override;
@@ -89,6 +93,11 @@ implementation
 {%CLASSGROUP 'Vcl.Controls.TControl'}
 
 {$R *.dfm}
+
+uses
+  System.Types {,
+  Horizon.Core.Trace,
+  Horizon.Core.ExceptionHandler.API};
 
 //------------------------------------------------------------------------------
 //
@@ -161,8 +170,15 @@ begin
 
   FDScript.ValidateAll;
 
-  // Execute script
-  Result := FDScript.ExecuteAll;
+  // Execute script, command by command
+  Result := True;
+  FDScript.Position := Point(0, 0); // Assigning new script does not reset position so we must do it manually.
+  FDScript.ScriptOptions.CommandSeparator := ';'; // CommandSeparator isn't reset between executions
+  while (Result) and (not FDScript.EOF) do
+  begin
+//    BugreportInfo.WriteString('AutoScript', ScriptItem.Number, Format('Executing [%d:%d]', [FDScript.Position.Y, FDScript.Position.X]));
+    Result := FDScript.ExecuteStep;
+  end;
 end;
 
 //------------------------------------------------------------------------------
@@ -215,7 +231,7 @@ end;
 
 procedure TDataModuleAutoScriptRunnerFireDAC.BeginTransaction;
 begin
-  if (FDConnection.InTransaction) then
+  if (not FDConnection.InTransaction) then
     FDConnection.StartTransaction;
 end;
 
@@ -228,6 +244,18 @@ begin
     else
       FDConnection.Rollback;
   end;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TDataModuleAutoScriptRunnerFireDAC.FDScriptError(ASender, AInitiator: TObject; var AException: Exception);
+begin
+//  BugreportInfo.WriteString('AutoScript', '', Format('Error: %s', [AException.Message.Replace(#13, ' ')]));
+end;
+
+procedure TDataModuleAutoScriptRunnerFireDAC.FDScriptProgress(Sender: TObject);
+begin
+//  FreezeDetection.IndicateApplicationNotFrozen;
 end;
 
 //------------------------------------------------------------------------------

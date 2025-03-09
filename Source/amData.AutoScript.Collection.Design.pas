@@ -48,12 +48,14 @@ uses
   Classes,
 //  ColnEdit,
   SysUtils,
+  StrUtils,
   Windows,
   VCL.Dialogs,
   VCL.Controls,
 
   DesignIntf,
   DesignEditors,
+  DesignConst,
 
   amData.AutoScript.Collection;
 
@@ -65,10 +67,14 @@ const
 //      TScriptCollectionEditor
 //
 //------------------------------------------------------------------------------
+// Component editor for TScriptContainer.
+// Adds a menu item to import SQL scripts from external files.
+//------------------------------------------------------------------------------
 type
   TScriptCollectionEditor = class(TComponentEditor)
   protected
     procedure DoImport(ScriptContainer: TScriptContainer);
+    procedure DoExport(ScriptContainer: TScriptContainer);
   public
     procedure ExecuteVerb(Index: Integer); override;
     function GetVerb(Index: Integer): string; override;
@@ -169,6 +175,36 @@ begin
     end;
 end;
 
+procedure TScriptCollectionEditor.DoExport(ScriptContainer: TScriptContainer);
+begin
+  var Dialog := TFileOpenDialog.Create(nil);
+  try
+    Dialog.Options := [fdoPickFolders, fdoPathMustExist, fdoForceFileSystem];
+    Dialog.Title := 'Export SQL scripts';
+
+    if (not Dialog.Execute) then
+      exit;
+
+    for var i := 0 to ScriptContainer.Scripts.Count-1 do
+    begin
+      var Script := ScriptContainer.Scripts[i];
+
+      var Filename := Dialog.Filename + '\' + Format('%s %s.sql', [Script.Number, Script.Description]);
+      if (not Script.Enabled) then
+        Filename := Filename + '.disabled';
+
+      var Stream := TFileStream.Create(Filename, fmCreate);
+      try
+        Script.Script.SaveToStream(Stream);
+      finally
+        Stream.Free;
+      end;
+    end;
+  finally
+    Dialog.Free;
+  end;
+end;
+
 procedure TScriptCollectionEditor.ExecuteVerb(Index: Integer);
 var
   i: Integer;
@@ -180,6 +216,7 @@ begin
   begin
     case Index - i of
       0: DoImport(TScriptContainer(Component));
+      1: DoExport(TScriptContainer(Component));
     end;
   end;
 end;
@@ -194,25 +231,29 @@ begin
   else
     case Index - i of
       0: Result := 'Import SQL scripts...';
+      1: Result := 'Export SQL scripts...';
     end;
 end;
 
 function TScriptCollectionEditor.GetVerbCount: Integer;
 begin
-  Result := inherited GetVerbCount+1;
+  Result := inherited GetVerbCount+2;
 end;
 
 //------------------------------------------------------------------------------
 //
-//      TScriptCollectionItemProperty
+//      TScriptDependencyCollectionItemProperty
 //
+//------------------------------------------------------------------------------
+// Property editor for the TScriptDependencyCollectionItem.Dependency property.
+// Handles references to other TScriptCollectionItem items.
 //------------------------------------------------------------------------------
 type
   TIterateProc = function(Item: TPersistent;
     const Value: string; GetStrProc: TGetStrProc;
     const NewValue: string): boolean of object;
 
-  TScriptCollectionItemProperty = class(TClassProperty)
+  TScriptDependencyCollectionItemProperty = class(TClassProperty)
   private
     function DoGetValues(Item: TPersistent;
       const Value: string; GetStrProc: TGetStrProc; const NewValue: string): boolean;
@@ -229,7 +270,7 @@ type
     procedure GetValues(Proc: TGetStrProc); override;
   end;
 
-function TScriptCollectionItemProperty.DoGetValues(Item: TPersistent;
+function TScriptDependencyCollectionItemProperty.DoGetValues(Item: TPersistent;
   const Value: string; GetStrProc: TGetStrProc;
   const NewValue: string): boolean;
 begin
@@ -238,7 +279,7 @@ begin
   Result := True;
 end;
 
-function TScriptCollectionItemProperty.DoSetValue(Item: TPersistent;
+function TScriptDependencyCollectionItemProperty.DoSetValue(Item: TPersistent;
   const Value: string; GetStrProc: TGetStrProc;
   const NewValue: string): boolean;
 begin
@@ -247,17 +288,17 @@ begin
     SetOrdValue(longInt(Item));
 end;
 
-function TScriptCollectionItemProperty.GetAttributes: TPropertyAttributes;
+function TScriptDependencyCollectionItemProperty.GetAttributes: TPropertyAttributes;
 begin
   Result := [paValueList, paSortList];
 end;
 
-function TScriptCollectionItemProperty.GetEditLimit: Integer;
+function TScriptDependencyCollectionItemProperty.GetEditLimit: Integer;
 begin
   Result := 127;
 end;
 
-function TScriptCollectionItemProperty.GetValue: string;
+function TScriptDependencyCollectionItemProperty.GetValue: string;
 begin
   if (GetOrdValue = 0) then
     Result := '(none)'
@@ -268,31 +309,31 @@ end;
 type
   TCollectionCracker = class(TCollection);
 
-procedure TScriptCollectionItemProperty.GetValues(Proc: TGetStrProc);
+procedure TScriptDependencyCollectionItemProperty.GetValues(Proc: TGetStrProc);
 begin
   Iterate(DoGetValues, Proc, '');
 end;
 
-function TScriptCollectionItemProperty.Iterate(Proc: TIterateProc;
+function TScriptDependencyCollectionItemProperty.Iterate(Proc: TIterateProc;
   GetStrProc: TGetStrProc; const NewValue: string): boolean;
 begin
   Result := True;
-  var Item := TCollectionItem(GetComponent(0));
-  var OwnerItem := TCollectionCracker(Item.Collection).GetOwner as TCollectionItem;
+  var Item := GetComponent(0) as TScriptDependencyCollectionItem;
+  var ScriptContainer := Item.ScriptItem.ScriptContainer;
 
-  for var i := 0 to OwnerItem.Collection.Count-1 do
+  for var i := 0 to ScriptContainer.Scripts.Count-1 do
   begin
-    if (OwnerItem.Collection.Items[i] = OwnerItem) then
+    if (ScriptContainer.Scripts[i] = Item.ScriptItem) then
       continue; // Don't include self
 
-    Result := Proc(OwnerItem.Collection.Items[i], OwnerItem.Collection.Items[i].DisplayName, GetStrProc, NewValue);
+    Result := Proc(ScriptContainer.Scripts[i], ScriptContainer.Scripts[i].DisplayName, GetStrProc, NewValue);
 
     if (not Result) then
       break;
   end;
 end;
 
-procedure TScriptCollectionItemProperty.SetValue(const Value: string);
+procedure TScriptDependencyCollectionItemProperty.SetValue(const Value: string);
 begin
   if (Iterate(DoSetValue, nil, Value)) then
     SetOrdValue(Longint(nil));
@@ -570,6 +611,56 @@ end;
 
 //------------------------------------------------------------------------------
 //
+//      TScriptCollectionItemEventProperty
+//
+//------------------------------------------------------------------------------
+// Property editor for TScriptCollectionItem event properties.
+//------------------------------------------------------------------------------
+type
+  TScriptCollectionItemEventProperty = class(TMethodProperty)
+  public
+    function GetFormMethodName: string; override;
+    function GetTrimmedEventName: string;
+  end;
+
+function TScriptCollectionItemEventProperty.GetFormMethodName: string;
+var
+  i: integer;
+begin
+  var ScriptItem := GetComponent(0) as TScriptCollectionItem;
+
+  Result := ScriptItem.ScriptContainer.Name;
+
+  for i := Length(Result) downto 1 do
+    if (Result[i] in ['.', '[', ']', '-', '>']) then
+      Delete(Result, i, 1);
+
+  if Result = '' then
+    raise EDesignPropertyError.Create(SCannotCreateName);
+
+  var Number := ScriptItem.Number;
+
+  i := Pos(Number, ' ');
+  if (i > 0) then
+    SetLength(Number, i-1);
+
+  for i := Length(Number) downto 1 do
+    if (not (Number[i] in ['a'..'z', 'A'..'Z', '0'..'9'])) then
+      Delete(Number, i, 1);
+
+  Result := Result + Number + GetTrimmedEventName;
+end;
+
+function TScriptCollectionItemEventProperty.GetTrimmedEventName: string;
+begin
+  Result := GetName;
+
+  if (Result.StartsWith('On', True)) then
+    Delete(Result, 1, 2);
+end;
+
+//------------------------------------------------------------------------------
+//
 //      Register
 //
 //------------------------------------------------------------------------------
@@ -578,7 +669,9 @@ begin
   RegisterComponents(sDesignGroup, [TScriptContainer]);
 
   RegisterComponentEditor(TScriptContainer, TScriptCollectionEditor);
-  RegisterPropertyEditor(TypeInfo(TScriptCollectionItem), nil, '', TScriptCollectionItemProperty);
+  RegisterPropertyEditor(TypeInfo(TScriptCollectionItem), TScriptDependencyCollectionItem, 'Dependency', TScriptDependencyCollectionItemProperty);
+  RegisterPropertyEditor(TypeInfo(TContinueEvent), TScriptCollectionItem, 'OnBeforeExecute', TScriptCollectionItemEventProperty);
+  RegisterPropertyEditor(TypeInfo(TNotifyEvent), TScriptCollectionItem, 'OnAfterExecute', TScriptCollectionItemEventProperty);
 //  RegisterPropertyEditor(TypeInfo(TStrings), TScriptCollectionItem, 'SQL', TSQLProperty);
 end;
 

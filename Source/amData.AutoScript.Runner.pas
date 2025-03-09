@@ -134,13 +134,21 @@ procedure TDataModuleAutoScriptRunner.DoAfterExecute(ScriptItem: TScriptCollecti
 begin
   if (Assigned(ScriptItem.OnAfterExecute)) then
     ScriptItem.OnAfterExecute(ScriptItem);
+
+  var ScriptContainer := TScriptCollection(ScriptItem.Collection).Owner as TScriptContainer;
+  if (Assigned(ScriptContainer.OnAfterExecute)) then
+    ScriptContainer.OnAfterExecute(ScriptItem);
 end;
 
 function TDataModuleAutoScriptRunner.DoBeforeExecute(ScriptItem: TScriptCollectionItem): TScriptContinue;
 begin
   Result := scContinue;
 
-  if (Assigned(ScriptItem.OnBeforeExecute)) then
+  var ScriptContainer := TScriptCollection(ScriptItem.Collection).Owner as TScriptContainer;
+  if (Assigned(ScriptContainer.OnBeforeExecute)) then
+    ScriptContainer.OnBeforeExecute(ScriptItem, Result);
+
+  if (Result = scContinue) and (Assigned(ScriptItem.OnBeforeExecute)) then
     ScriptItem.OnBeforeExecute(ScriptItem, Result);
 end;
 
@@ -209,7 +217,6 @@ begin
 
     if (Continue = scContinue) then
     begin
-
       // Execute script
       if (not DoExecuteScript(ScriptItem)) then
         raise Exception.CreateFmt('Script execution failed: %s', [ScriptItem.Number]);
@@ -243,8 +250,11 @@ begin
   if (not (srCheckPatchLevel in Options)) then
     Exit(True);
 
+  // Make sure that PATCH_LEVEL has been loaded and FMileStone has been set
+  GetPatchLevelItems;
+
   (*
-  ** If script has already been registered in PATCH_LEVEL table, it has
+  ** If script has already been registered in PATCH_LEVEL table, then it has
   ** already been executed and should be ignored.
   *)
   var UpperNumber := ScriptItem.Number.ToUpper;
@@ -262,7 +272,9 @@ begin
       if (Dependency = nil) then
         continue;
 
-      if (Dependency.Enabled) and (PatchLevelItems.ContainsKey(Dependency.Number.ToUpper)) then
+      // If PATCH_LEVEL contains the disallowed dependency then we
+      // should not execute the script
+      if (PatchLevelItems.ContainsKey(Dependency.Number.ToUpper)) then
         Exit(False);
     end;
 

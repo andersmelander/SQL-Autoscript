@@ -37,13 +37,14 @@ unit amData.AutoScript.API;
 interface
 
 uses
+  amData.AutoScript.Collection,
   amData.AutoScript.Runner.API;
 
 type
   IAutoScriptModule = interface
     ['{34ECAAF7-DD61-4592-AEC1-274EDBB6E542}']
-    procedure Execute(Bootstrap: boolean = False); overload;
-    procedure Execute(const ScriptRunner: IAutoScriptRunner; Bootstrap: boolean); overload;
+    procedure Execute(Bootstrap: boolean = False; Mask: TScriptMask = []); overload;
+    procedure Execute(const ScriptRunner: IAutoScriptRunner; Bootstrap: boolean; Mask: TScriptMask = []); overload;
 
     function GetAutoScriptFolder: string;
     procedure SetAutoScriptFolder(const Value: string);

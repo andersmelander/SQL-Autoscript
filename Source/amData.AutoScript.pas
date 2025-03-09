@@ -63,18 +63,19 @@ type
 
     function CreateScriptRunner: IAutoScriptRunner; virtual; abstract;
 
+    procedure MergeScripts(TargetScripts, SourceScripts: TScriptCollection);
     procedure MergeExternalScripts(Scripts: TScriptCollection; const Path: string);
 
     procedure ExecuteScript(const ScriptRunner: IAutoScriptRunner; Script: TScriptCollectionItem; Options: TAutoScriptRunnerOptions);
-    procedure ExecuteScripts(const ScriptRunner: IAutoScriptRunner; Scripts: TScriptCollection; Options: TAutoScriptRunnerOptions);
+    procedure ExecuteScripts(const ScriptRunner: IAutoScriptRunner; Scripts: TScriptCollection; Options: TAutoScriptRunnerOptions; Mask: TScriptMask);
   protected
     // IUnknown
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
 
     // IAutoScriptModule
-    procedure Execute(Bootstrap: boolean = False); overload; virtual;
-    procedure Execute(const ScriptRunner: IAutoScriptRunner; Bootstrap: boolean); overload; virtual; abstract;
+    procedure Execute(Bootstrap: boolean = False; Mask: TScriptMask = []); overload; virtual;
+    procedure Execute(const ScriptRunner: IAutoScriptRunner; Bootstrap: boolean; Mask: TScriptMask = []); overload; virtual; abstract;
     function GetAutoScriptFolder: string;
     procedure SetAutoScriptFolder(const Value: string);
     property AutoScriptFolder: string read GetAutoScriptFolder write SetAutoScriptFolder;
@@ -129,12 +130,12 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TDataModuleAutoScript.Execute(Bootstrap: boolean);
+procedure TDataModuleAutoScript.Execute(Bootstrap: boolean; Mask: TScriptMask);
 begin
   var ScriptRunner := CreateScriptRunner;
   try
 
-    Execute(ScriptRunner, Bootstrap);
+    Execute(ScriptRunner, Bootstrap, Mask);
 
   finally
     ScriptRunner := nil;
@@ -143,7 +144,8 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TDataModuleAutoScript.ExecuteScript(const ScriptRunner: IAutoScriptRunner; Script: TScriptCollectionItem; Options: TAutoScriptRunnerOptions);
+procedure TDataModuleAutoScript.ExecuteScript(const ScriptRunner: IAutoScriptRunner; Script: TScriptCollectionItem;
+  Options: TAutoScriptRunnerOptions);
 begin
   if (not Script.Enabled) then
     Exit;
@@ -193,6 +195,10 @@ begin
 
       Filename := TPath.ChangeExtension(FileName, '.error');
 
+      var Folder := TPath.GetDirectoryName(Filename);
+      if (not TDirectory.Exists(Folder)) then
+        TDirectory.CreateDirectory(Folder);
+
       var List := TStringList.Create;
       try
         List.Text := E.Message;
@@ -209,7 +215,8 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TDataModuleAutoScript.ExecuteScripts(const ScriptRunner: IAutoScriptRunner; Scripts: TScriptCollection; Options: TAutoScriptRunnerOptions);
+procedure TDataModuleAutoScript.ExecuteScripts(const ScriptRunner: IAutoScriptRunner; Scripts: TScriptCollection;
+  Options: TAutoScriptRunnerOptions; Mask: TScriptMask);
 begin
   // Make sure we only run from the last milestone
   var DisableOlder: boolean := False;
@@ -230,6 +237,9 @@ begin
   for var i := FirstItem to Scripts.Count-1 do
   begin
     var Script := Scripts[i];
+
+    if (Mask <> []) and (Mask * Script.Mask = []) then
+      continue;
 
     ExecuteScript(ScriptRunner, Script, Options);
   end;
@@ -290,6 +300,31 @@ begin
       Scripts.EndUpdate;
     end;
 
+  end;
+end;
+
+procedure TDataModuleAutoScript.MergeScripts(TargetScripts, SourceScripts: TScriptCollection);
+begin
+  for var i := 0 to SourceScripts.Count-1 do
+  begin
+    var Script := SourceScripts[i];
+
+    // If there's already a script with the same number, disable the existing
+    // script, so the new script can override it.
+    begin
+      var n := TargetScripts.IndexOf(Script.Number);
+      if (n <> -1) then
+        TargetScripts.Delete(n);
+    end;
+
+    TargetScripts.BeginUpdate;
+    try
+      var Item := TargetScripts.Add as TScriptCollectionItem;
+
+      Item.Assign(Script);
+    finally
+      TargetScripts.EndUpdate;
+    end;
   end;
 end;
 

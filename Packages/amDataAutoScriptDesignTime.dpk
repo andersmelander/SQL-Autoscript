@@ -26,7 +26,7 @@ package amDataAutoScriptDesignTime;
 {$DEFINE RELEASE}
 {$ENDIF IMPLICITBUILDING}
 {$DESCRIPTION 'SQL script collection framework'}
-{$LIBSUFFIX '260'}
+{$LIBSUFFIX AUTO}
 {$DESIGNONLY}
 {$IMPLICITBUILD ON}
 
@@ -35,7 +35,8 @@ requires
   designide;
 
 contains
-  amData.AutoScript.Collection.Design in '..\Source\amData.AutoScript.Collection.Design.pas';
+  amData.AutoScript.Collection.Design in 'amData.AutoScript.Collection.Design.pas',
+  amData.AutoScript.Collection in 'amData.AutoScript.Collection.pas';
 
 end.
 

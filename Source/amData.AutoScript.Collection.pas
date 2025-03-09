@@ -38,12 +38,15 @@ interface
 
 uses
   Generics.Collections,
+  TypInfo,
   Classes;
 
 type
   TScriptSource = (ssEmbedded, ssFile);
 
   TScriptCollectionItem = class;
+  TScriptCollection = class;
+  TScriptContainer = class;
 
 //------------------------------------------------------------------------------
 //
@@ -62,15 +65,23 @@ type
   strict private
     FDependency: TScriptCollectionItem;
     FKind: TScriptDependencyKind;
-  private
+  strict private
     procedure SetDependency(const Value: TScriptCollectionItem);
+    function GetScriptItem: TScriptCollectionItem;
+    procedure WriteData(Writer: TWriter);
+    procedure ReadData(Reader: TReader);
   protected
     function GetDisplayName: string; override;
+    procedure DefineProperties(Filer: TFiler); override;
   public
     destructor Destroy; override;
+
+    procedure Assign(Source: TPersistent); override;
+
+    property ScriptItem: TScriptCollectionItem read GetScriptItem;
   published
-    property Dependency: TScriptCollectionItem read FDependency write SetDependency;
     property Kind: TScriptDependencyKind read FKind write FKind default dkRequire;
+    property Dependency: TScriptCollectionItem read FDependency write SetDependency stored False; // Persisted via DefineProperties
   end;
 
 //------------------------------------------------------------------------------
@@ -80,11 +91,14 @@ type
 //------------------------------------------------------------------------------
   TScriptDependencyCollection = class(TOwnedCollection)
   strict private
+    FScriptItem: TScriptCollectionItem;
+  strict private
     function GetDependency(Index: Integer): TScriptDependencyCollectionItem;
     procedure SetDependency(Index: Integer; const Value: TScriptDependencyCollectionItem);
   public
-    constructor Create(AOwner: TPersistent);
+    constructor Create(AScriptItem: TScriptCollectionItem; AOwner: TPersistent);
 
+    property ScriptItem: TScriptCollectionItem read FScriptItem;
     property Dependencies[Index: Integer]: TScriptDependencyCollectionItem read GetDependency write SetDependency; default;
   end;
 
@@ -103,6 +117,14 @@ type
 
   TContinueEvent = procedure(Sender: TObject; var Continue: TScriptContinue) of object;
 
+  TScriptMaskItem = (
+    ScriptMask0, ScriptMask1, ScriptMask2, ScriptMask3,
+    ScriptMask4, ScriptMask5, ScriptMask6, ScriptMask7,
+    ScriptMask8, ScriptMask9, ScriptMaska, ScriptMaskb,
+    ScriptMaskc, ScriptMaskd, ScriptMaske, ScriptMaskf
+  );
+  TScriptMask = set of TScriptMaskItem;
+
   TScriptCollectionItem = class(TCollectionItem)
   strict private
     FMilestone: boolean;
@@ -117,6 +139,8 @@ type
     FGUID: string;
     FDependencies: TScriptDependencyCollection;
     FComment: string;
+    FTag: integer;
+    FMask: TScriptMask;
     FSubscriptions: TList<TScriptDependencyCollectionItem>;
     FOnBeforeExecute: TContinueEvent;
     FOnAfterExecute: TNotifyEvent;
@@ -126,6 +150,9 @@ type
     function GetGUID: string;
     procedure SetGUID(const Value: string);
     procedure SetEnabled(const Value: boolean);
+    procedure SetDependencies(const Value: TScriptDependencyCollection);
+    function GetScriptCollection: TScriptCollection;
+    function GetScriptContainer: TScriptContainer;
 
     procedure DoLoad;
     procedure ValidateNumber(const Value: string);
@@ -135,12 +162,19 @@ type
     procedure Unsubscribe(Item: TScriptDependencyCollectionItem);
   protected
     function GetDisplayName: string; override;
+    function IsMaskStored: boolean;
+    function IsDependenciesStored: boolean;
   public
-    constructor Create(Collection: TCollection); override;
+    constructor Create(ACollection: TCollection); override;
     destructor Destroy; override;
+
+    procedure Assign(Source: TPersistent); override;
 
     procedure LoadFromFile(const AFileName: string; ALoadOnDemand: boolean = True);
     procedure Prepare;
+
+    property ScriptCollection: TScriptCollection read GetScriptCollection;
+    property ScriptContainer: TScriptContainer read GetScriptContainer;
     property Source: TScriptSource read FSource;
     property FileName: string read FFileName;
     property LoadOnDemand: boolean read FLoadOnDemand;
@@ -151,8 +185,10 @@ type
     property Script: TStrings read FScript write SetScript;
     property Milestone: boolean read FMilestone write FMilestone default False;
     property Enabled: boolean read FEnabled write SetEnabled default True;
-    property Dependencies: TScriptDependencyCollection read FDependencies;
+    property Dependencies: TScriptDependencyCollection read FDependencies write SetDependencies stored IsDependenciesStored;
     property Comment: string read FComment write FComment;
+    property Tag: integer read FTag write FTag default 0;
+    property Mask: TScriptMask read FMask write FMask stored IsMaskStored;
 
     property OnBeforeExecute: TContinueEvent read FOnBeforeExecute write FOnBeforeExecute;
     property OnAfterExecute: TNotifyEvent read FOnAfterExecute write FOnAfterExecute;
@@ -170,6 +206,7 @@ type
   strict private
     function GetScript(Index: Integer): TScriptCollectionItem;
     procedure SetScript(Index: Integer; const Value: TScriptCollectionItem);
+    function GetScriptContainer: TScriptContainer;
   protected
     procedure Update(Item: TCollectionItem); override;
   public
@@ -178,6 +215,8 @@ type
     procedure BeginUpdate; override;
     procedure EndUpdate; override;
     function IndexOf(const Number: string): integer;
+
+    property ScriptContainer: TScriptContainer read GetScriptContainer;
     property Scripts[Index: Integer]: TScriptCollectionItem read GetScript write SetScript; default;
   end;
 
@@ -188,15 +227,30 @@ type
 //------------------------------------------------------------------------------
   [ComponentPlatforms(0)]
   TScriptContainer = class(TComponent)
+  strict private type
+    TFixUp = record
+      Instance: TObject;
+      Name: string;
+      Value: string;
+    end;
   strict private
     FScripts: TScriptCollection;
+    FOnBeforeExecute: TContinueEvent;
+    FOnAfterExecute: TNotifyEvent;
+    FFixupReferences: TList<TFixUp>;
   strict private
     procedure SetScripts(const Value: TScriptCollection);
+  private
+    procedure AddFixup(Instance: TObject; const Name, Value: string);
+  protected
+    procedure Loaded; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
   published
     property Scripts: TScriptCollection read FScripts write SetScripts;
+    property OnBeforeExecute: TContinueEvent read FOnBeforeExecute write FOnBeforeExecute;
+    property OnAfterExecute: TNotifyEvent read FOnAfterExecute write FOnAfterExecute;
   end;
 
 //------------------------------------------------------------------------------
@@ -212,12 +266,29 @@ uses
 
 { TScriptCollectionItem }
 
-constructor TScriptCollectionItem.Create(Collection: TCollection);
+procedure TScriptCollectionItem.Assign(Source: TPersistent);
 begin
-  inherited Create(Collection);
+  if (Source is TScriptCollectionItem) then
+  begin
+    GUID := TScriptCollectionItem(Source).GUID;
+    Number := TScriptCollectionItem(Source).Number;
+    Description := TScriptCollectionItem(Source).Description;
+    Script := TScriptCollectionItem(Source).Script;
+    Milestone := TScriptCollectionItem(Source).Milestone;
+    Enabled := TScriptCollectionItem(Source).Enabled;
+    Comment := TScriptCollectionItem(Source).Comment;
+    // Dependencies not copied
+  end else
+    inherited;
+end;
+
+constructor TScriptCollectionItem.Create(ACollection: TCollection);
+begin
+  inherited Create(ACollection);
   FScript := TStringList.Create;
-  FDependencies := TScriptDependencyCollection.Create(Self);
+  FDependencies := TScriptDependencyCollection.Create(Self, Self);
   FEnabled := True;
+  FNumber := FormatDateTime('yyyymmdd-zzz', Now);
 end;
 
 destructor TScriptCollectionItem.Destroy;
@@ -302,15 +373,36 @@ begin
 end;
 
 function TScriptCollectionItem.GetGUID: string;
-var
-  NewGUID: TGUID;
 begin
   if (FGUID = '') then
-  begin
-    OleCheck(CoCreateGuid(NewGUID));
-    FGUID := GuidToString(NewGUID);
-  end;
+    FGUID := TGUID.NewGuid.ToString;
+
   Result := FGUID;
+end;
+
+function TScriptCollectionItem.GetScriptCollection: TScriptCollection;
+begin
+  Result := TScriptCollection(Collection);
+end;
+
+function TScriptCollectionItem.GetScriptContainer: TScriptContainer;
+begin
+  Result := ScriptCollection.ScriptContainer;
+end;
+
+function TScriptCollectionItem.IsDependenciesStored: boolean;
+begin
+  Result := (FDependencies.Count > 0);
+end;
+
+function TScriptCollectionItem.IsMaskStored: boolean;
+begin
+  Result := (FMask <> []);
+end;
+
+procedure TScriptCollectionItem.SetDependencies(const Value: TScriptDependencyCollection);
+begin
+  FDependencies.Assign(Value);
 end;
 
 procedure TScriptCollectionItem.SetEnabled(const Value: boolean);
@@ -324,26 +416,18 @@ begin
 end;
 
 procedure TScriptCollectionItem.SetGUID(const Value: string);
-var
-  NewGUID: TGUID;
 begin
-  if (Value = '') then
+  if (Value <> '') then
   begin
-    OleCheck(CoCreateGuid(NewGUID));
-    FGUID := GuidToString(NewGUID);
-  end else
-  begin
-    StringToGUID(Value); // Validate that new value is a GUID
     ValidateGUID(Value);
-    FGUID := Value;
-  end;
+    FGUID := TGUID.Create(Value).ToString;
+  end else
+    FGUID := TGUID.NewGuid.ToString;
 end;
 
 procedure TScriptCollectionItem.ValidateNumber(const Value: string);
-var
-  i: integer;
 begin
-  for i := 0 to Collection.Count-1 do
+  for var i := 0 to Collection.Count-1 do
     if (Collection.Items[i] <> Self) and
       (TScriptCollectionItem(Collection.Items[i]).Enabled) and
       (TScriptCollectionItem(Collection.Items[i]).Number = Value) then
@@ -351,13 +435,11 @@ begin
 end;
 
 procedure TScriptCollectionItem.ValidateGUID(const Value: string);
-var
-  i: integer;
 begin
-  for i := 0 to Collection.Count-1 do
+  for var i := 0 to Collection.Count-1 do
     if (Collection.Items[i] <> Self) and
       (TScriptCollectionItem(Collection.Items[i]).Enabled) and
-      (TScriptCollectionItem(Collection.Items[i]).GUID = Value) then
+      (SameText(TScriptCollectionItem(Collection.Items[i]).GUID, Value)) then
       raise Exception.CreateFmt('Duplicate script GUIDs not allowed: %s', [Value]);
 end;
 
@@ -385,6 +467,11 @@ begin
   Result := TScriptCollectionItem(Items[Index]);
 end;
 
+function TScriptCollection.GetScriptContainer: TScriptContainer;
+begin
+  Result := TScriptContainer(Owner);
+end;
+
 function TScriptCollection.IndexOf(const Number: string): integer;
 begin
   Result := Count-1;
@@ -402,37 +489,57 @@ begin
 end;
 
 procedure TScriptCollection.Update(Item: TCollectionItem);
-var
-  i: integer;
-  List: TStringList;
 begin
   FChanged := True;
-  if (FUpdateCount = 0) then
-  begin
+  if (FUpdateCount > 0) then
+    Exit;
+
+  Inc(FUpdateCount);
+  try
     inherited Update(Item);
+
     FChanged := False;
-    if (Item = nil) and (Count > 1) then
-    begin
-      List := TStringList.Create;
+
+    if (Item <> nil) or (Count <= 1) then
+      Exit;
+
+    var List := TStringList.Create;
+    try
+      for var i := 0 to Count-1 do
+        List.AddObject(Scripts[i].Number, Scripts[i]);
+
+      List.Sort;
+
+      BeginUpdate;
       try
-        for i := 0 to Count-1 do
-          List.AddObject(Scripts[i].Number, Scripts[i]);
-        List.Sort;
-        BeginUpdate;
-        try
-          for i := 0 to List.Count-1 do
-            TCollectionItem(List.Objects[i]).Index := i;
-        finally
-          EndUpdate;
-        end;
+        for var i := 0 to List.Count-1 do
+          TCollectionItem(List.Objects[i]).Index := i;
       finally
-        List.Free;
+        EndUpdate;
       end;
+    finally
+      List.Free;
     end;
+  finally
+    Dec(FUpdateCount);
   end;
 end;
 
 { TScriptContainer }
+
+procedure TScriptContainer.AddFixup(Instance: TObject; const Name, Value: string);
+var
+  FixUp: TFixUp;
+begin
+  if (FFixupReferences = nil) then
+    FFixupReferences := TList<TFixUp>.Create;
+
+  FixUp.Instance := Instance;
+  FixUp.Name := Name;
+  FixUp.Value := Value;
+
+  FFixupReferences.Add(FixUp);
+end;
 
 constructor TScriptContainer.Create(AOwner: TComponent);
 begin
@@ -442,8 +549,27 @@ end;
 
 destructor TScriptContainer.Destroy;
 begin
+  FFixupReferences.Free;
   FScripts.Free;
   inherited Destroy;
+end;
+
+procedure TScriptContainer.Loaded;
+begin
+  inherited;
+
+  if (FFixupReferences <> nil) then
+    for var FixUp in FFixupReferences do
+    begin
+      for var i := 0 to Scripts.Count-1 do
+        if (Scripts[i].Number = FixUp.Value) then
+        begin
+          SetObjectProp(FixUp.Instance, FixUp.Name, Scripts[i]);
+          break;
+        end;
+    end;
+
+  FreeAndNil(FFixupReferences);
 end;
 
 procedure TScriptContainer.SetScripts(const Value: TScriptCollection);
@@ -452,6 +578,21 @@ begin
 end;
 
 { TScriptDependencyCollectionItem }
+
+procedure TScriptDependencyCollectionItem.Assign(Source: TPersistent);
+begin
+  if (Source is TScriptDependencyCollectionItem) then
+  begin
+    Dependency := TScriptDependencyCollectionItem(Source).Dependency;
+    Kind := TScriptDependencyCollectionItem(Source).Kind;
+  end else
+    inherited;
+end;
+
+procedure TScriptDependencyCollectionItem.DefineProperties(Filer: TFiler);
+begin
+  Filer.DefineProperty('DependencyName', ReadData, WriteData, (FDependency <> nil));
+end;
 
 destructor TScriptDependencyCollectionItem.Destroy;
 begin
@@ -462,24 +603,39 @@ begin
 end;
 
 function TScriptDependencyCollectionItem.GetDisplayName: string;
+const
+  sKinds: array[TScriptDependencyKind] of string = ('Require', 'Disallow');
 begin
+  Result := sKinds[FKind];
+
   if (FDependency <> nil) then
   begin
+
     if (FDependency.Number <> '') then
-      Result := FDependency.Number+': '
-    else
-      Result := '';
-    if (FDependency.Enabled) then
-      Result := Result+FDependency.GUID
-    else
-      Result := Result+'('+FDependency.GUID+')';
+      Result := Result + ': '+ FDependency.Number;
+
   end else
-    Result := inherited GetDisplayName;
+    Result := Result + ': ' + inherited GetDisplayName;
+
+  if (FDependency = nil) or (not FDependency.Enabled) then
+    Result := '('+Result+')';
+end;
+
+function TScriptDependencyCollectionItem.GetScriptItem: TScriptCollectionItem;
+begin
+  Result := TScriptDependencyCollection(Collection).ScriptItem;
+end;
+
+procedure TScriptDependencyCollectionItem.ReadData(Reader: TReader);
+begin
+  var Ref := Reader.ReadString;
+
+  if (Ref <> '') then
+    ScriptItem.ScriptContainer.AddFixup(Self, 'Dependency', Ref);
 end;
 
 procedure TScriptDependencyCollectionItem.SetDependency(const Value: TScriptCollectionItem);
 var
-  Owner: TScriptCollectionItem;
   Items: TList<TScriptCollectionItem>;
 
   procedure CheckItem(Item: TScriptCollectionItem);
@@ -487,7 +643,7 @@ var
     if (Item = nil) then
       Exit;
 
-    if (Item = Owner) then
+    if (Item = ScriptItem) then
       raise Exception.Create('Invalid self-reference');
 
     if (Items.Contains(Item)) then
@@ -498,13 +654,12 @@ var
     for var DepencencyItem in Item.Dependencies do
       CheckItem(TScriptDependencyCollectionItem(DepencencyItem).Dependency);
   end;
+
 begin
   if (FDependency = Value) then
     Exit;
 
-
   // Check for self reference and cycles
-  Owner := TScriptCollectionItem(Collection.Owner);
   Items := TList<TScriptCollectionItem>.Create;
   try
 
@@ -523,11 +678,18 @@ begin
     FDependency.Subscribe(Self);
 end;
 
+procedure TScriptDependencyCollectionItem.WriteData(Writer: TWriter);
+begin
+  if (FDependency <> nil) then
+    Writer.WriteString(FDependency.Number);
+end;
+
 { TScriptDependencyCollection }
 
-constructor TScriptDependencyCollection.Create(AOwner: TPersistent);
+constructor TScriptDependencyCollection.Create(AScriptItem: TScriptCollectionItem; AOwner: TPersistent);
 begin
   inherited Create(AOwner, TScriptDependencyCollectionItem);
+  FScriptItem := AScriptItem;
 end;
 
 function TScriptDependencyCollection.GetDependency(Index: Integer): TScriptDependencyCollectionItem;
